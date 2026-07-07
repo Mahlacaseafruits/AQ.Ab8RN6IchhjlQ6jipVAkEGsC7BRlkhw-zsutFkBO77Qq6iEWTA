@@ -1,0 +1,10 @@
+{
+  "name": "Remix: Remix: Remix: Remix: Remix: Remix: Major Plomberie \u0026 Fils",
+  "description": "Application web \u0026 mobile pour Major Plomberie \u0026 Fils : Dépannage plomberie et installation sanitaire à Foumbot, Bafoussam et Foumban.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
