@@ -9,8 +9,29 @@ import {
   deleteDriveFile, 
   renameDriveFile, 
   fetchFileContent,
-  DriveFile 
+  DriveFile,
+  listContacts,
+  createContact,
+  deleteContact,
+  ContactPerson,
+  listGmailMessages,
+  sendGmailMessage,
+  deleteGmailMessage,
+  createSpreadsheet,
+  appendRowToSpreadsheet,
+  getSpreadsheetValues,
+  listTaskLists,
+  listTasks,
+  createGoogleTask,
+  updateGoogleTaskStatus,
+  deleteGoogleTask,
+  db,
+  GmailMessage,
+  SpreadsheetInfo,
+  TaskList,
+  GoogleTask
 } from '../lib/googleDriveService';
+import { collection, getDocs, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import { 
   Cloud, 
@@ -31,7 +52,22 @@ import {
   FolderOpen,
   Plus,
   ArrowRight,
-  Database
+  Database,
+  Users,
+  UserPlus,
+  Mail,
+  Phone,
+  Building,
+  Send,
+  Check,
+  Square,
+  CheckSquare,
+  ListTodo,
+  Calendar,
+  Table,
+  PlusCircle,
+  Inbox,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -43,7 +79,56 @@ export const DriveTab: React.FC = () => {
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   
-  // Create state variables for forms
+  // Navigation for Google Workspace (Drive vs Contacts vs Gmail vs Sheets vs Tasks vs Firebase)
+  const [activeSubTab, setActiveSubTab] = useState<'drive' | 'contacts' | 'gmail' | 'sheets' | 'tasks' | 'firebase'>('drive');
+
+  // Gmail States
+  const [gmailMessages, setGmailMessages] = useState<GmailMessage[]>([]);
+  const [gmailLoading, setGmailLoading] = useState<boolean>(false);
+  const [gmailSearch, setGmailSearch] = useState<string>('');
+  const [gmailTo, setGmailTo] = useState<string>('');
+  const [gmailSubject, setGmailSubject] = useState<string>('');
+  const [gmailBody, setGmailBody] = useState<string>('');
+  const [sendingGmail, setSendingGmail] = useState<boolean>(false);
+
+  // Sheets States
+  const [activeSpreadsheet, setActiveSpreadsheet] = useState<SpreadsheetInfo | null>(null);
+  const [sheetsLoading, setSheetsLoading] = useState<boolean>(false);
+  const [newSheetTitle, setNewSheetTitle] = useState<string>('Suivi_Chantiers_MajorPlomberie');
+  const [spreadsheetRows, setSpreadsheetRows] = useState<string[][]>([]);
+  const [rowDate, setRowDate] = useState<string>(new Date().toLocaleDateString('fr-FR'));
+  const [rowClient, setRowClient] = useState<string>('');
+  const [rowService, setRowService] = useState<string>('Dépannage Urgence');
+  const [rowAmount, setRowAmount] = useState<string>('25000');
+  const [addingRow, setAddingRow] = useState<boolean>(false);
+
+  // Tasks States
+  const [taskLists, setTaskLists] = useState<TaskList[]>([]);
+  const [selectedTaskListId, setSelectedTaskListId] = useState<string>('');
+  const [tasksList, setTasksList] = useState<GoogleTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState<boolean>(false);
+  const [newTaskTitle, setNewTaskTitle] = useState<string>('');
+  const [newTaskNotes, setNewTaskNotes] = useState<string>('');
+  const [newTaskDue, setNewTaskDue] = useState<string>('');
+  const [creatingTask, setCreatingTask] = useState<boolean>(false);
+
+  // Firebase Firestore devis list state
+  const [firestoreDevis, setFirestoreDevis] = useState<any[]>([]);
+  const [firestoreLoading, setFirestoreLoading] = useState<boolean>(false);
+
+  // Google Contacts States
+  const [contacts, setContacts] = useState<ContactPerson[]>([]);
+  const [contactsLoading, setContactsLoading] = useState<boolean>(false);
+  const [contactsSearch, setContactsSearch] = useState<string>('');
+
+  // New contact form state
+  const [newContactName, setNewContactName] = useState<string>('');
+  const [newContactEmail, setNewContactEmail] = useState<string>('');
+  const [newContactPhone, setNewContactPhone] = useState<string>('');
+  const [newContactOrg, setNewContactOrg] = useState<string>('Client Major Plomberie');
+  const [creatingContact, setCreatingContact] = useState<boolean>(false);
+
+  // Create state variables for forms (Google Drive)
   const [uploadText, setUploadText] = useState<string>('');
   const [uploadTitle, setUploadTitle] = useState<string>('Rapport_Intervention_Foumbot.txt');
   const [uploadingText, setUploadingText] = useState<boolean>(false);
@@ -69,6 +154,7 @@ export const DriveTab: React.FC = () => {
         setToken(currentToken);
         setLoading(false);
         fetchFiles();
+        fetchContactsList();
       },
       () => {
         setUser(null);
@@ -98,6 +184,20 @@ export const DriveTab: React.FC = () => {
     }
   };
 
+  // Fetch Google Contacts connections
+  const fetchContactsList = async () => {
+    setContactsLoading(true);
+    try {
+      const googleContacts = await listContacts();
+      setContacts(googleContacts);
+    } catch (err: any) {
+      console.error(err);
+      // Don't override primary screen error unless critical, since user may just use Drive
+    } finally {
+      setContactsLoading(false);
+    }
+  };
+
   // Trigger search
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,11 +213,14 @@ export const DriveTab: React.FC = () => {
       if (result) {
         setUser(result.user);
         setToken(result.accessToken);
-        setSuccessMsg('Connexion Google Drive réussie !');
+        setSuccessMsg('Connexion Google Workspace réussie !');
         setTimeout(() => setSuccessMsg(null), 4000);
-        // Load initial files
+        
+        // Fetch both files and contacts on successful login
         const driveFiles = await listDriveFiles();
         setFiles(driveFiles);
+        const googleContacts = await listContacts();
+        setContacts(googleContacts);
       }
     } catch (err: any) {
       console.error(err);
@@ -127,9 +230,58 @@ export const DriveTab: React.FC = () => {
     }
   };
 
+  // Create Contact Handler
+  const handleCreateContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newContactName.trim()) return;
+    setCreatingContact(true);
+    setError(null);
+    try {
+      const created = await createContact(
+        newContactName.trim(),
+        newContactEmail.trim(),
+        newContactPhone.trim(),
+        newContactOrg.trim()
+      );
+      setSuccessMsg(`Client "${created.name}" ajouté avec succès dans votre répertoire Google Contacts !`);
+      setNewContactName('');
+      setNewContactEmail('');
+      setNewContactPhone('');
+      setTimeout(() => setSuccessMsg(null), 5000);
+      fetchContactsList();
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.message || 'Erreur lors de la création du contact.');
+    } finally {
+      setCreatingContact(false);
+    }
+  };
+
+  // Delete Contact with double safety prompt (mandatory)
+  const handleDeleteContact = async (resourceName: string, name: string) => {
+    const confirmed = window.confirm(`[ATTENTION DE SÉCURITÉ] Êtes-vous sûr de vouloir SUPPRIMER "${name}" de vos contacts Google ?`);
+    if (!confirmed) return;
+
+    const doubleConfirmed = window.confirm(`Veuillez confirmer une seconde fois que vous souhaitez supprimer définitivement "${name}".`);
+    if (!doubleConfirmed) return;
+
+    setContactsLoading(true);
+    try {
+      await deleteContact(resourceName);
+      setSuccessMsg(`Le contact "${name}" a été définitivement supprimé.`);
+      setTimeout(() => setSuccessMsg(null), 4000);
+      fetchContactsList();
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.message || 'Erreur lors de la suppression.');
+    } finally {
+      setContactsLoading(false);
+    }
+  };
+
   // Trigger Logout
   const handleLogout = async () => {
-    const confirmLogout = window.confirm('Voulez-vous vraiment vous déconnecter de Google Drive ?');
+    const confirmLogout = window.confirm('Voulez-vous vraiment vous déconnecter de Google ?');
     if (!confirmLogout) return;
     
     setLoading(true);
@@ -138,12 +290,277 @@ export const DriveTab: React.FC = () => {
       setUser(null);
       setToken(null);
       setFiles([]);
+      setContacts([]);
       setSuccessMsg('Déconnexion réussie.');
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {
       setError('Erreur lors de la déconnexion.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ==========================================
+  // LAZY LOADING EFFECT & HELPER METHODS
+  // ==========================================
+
+  useEffect(() => {
+    if (!user) return;
+
+    if (activeSubTab === 'gmail') {
+      fetchGmail();
+    } else if (activeSubTab === 'sheets') {
+      const savedSheet = sessionStorage.getItem('active_plumbing_spreadsheet');
+      if (savedSheet) {
+        try {
+          const parsed = JSON.parse(savedSheet);
+          setActiveSpreadsheet(parsed);
+          fetchSheetData(parsed.spreadsheetId);
+        } catch (e) {}
+      }
+    } else if (activeSubTab === 'tasks') {
+      fetchTaskListsAndTasks();
+    } else if (activeSubTab === 'firebase') {
+      fetchFirestoreDevis();
+    }
+  }, [activeSubTab, user]);
+
+  const fetchGmail = async (queryStr?: string) => {
+    setGmailLoading(true);
+    try {
+      const msgs = await listGmailMessages(queryStr || gmailSearch);
+      setGmailMessages(msgs);
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setGmailLoading(false);
+    }
+  };
+
+  const handleSendGmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gmailTo.trim() || !gmailSubject.trim() || !gmailBody.trim()) return;
+
+    const confirmed = window.confirm(`[CONFIRMATION] Confirmez-vous l'envoi de cet e-mail à ${gmailTo} ?`);
+    if (!confirmed) return;
+
+    setSendingGmail(true);
+    try {
+      await sendGmailMessage(gmailTo.trim(), gmailSubject.trim(), gmailBody);
+      setSuccessMsg(`E-mail envoyé avec succès à ${gmailTo} !`);
+      setGmailTo('');
+      setGmailSubject('');
+      setGmailBody('');
+      setTimeout(() => setSuccessMsg(null), 5000);
+      fetchGmail();
+    } catch (err: any) {
+      console.error(err);
+      alert("Erreur d'envoi Gmail : " + (err?.message || "Erreur"));
+    } finally {
+      setSendingGmail(false);
+    }
+  };
+
+  const handleDeleteGmail = async (id: string) => {
+    const confirmed = window.confirm("[SÉCURITÉ] Voulez-vous vraiment mettre cet e-mail à la corbeille ?");
+    if (!confirmed) return;
+
+    setGmailLoading(true);
+    try {
+      await deleteGmailMessage(id);
+      setSuccessMsg("L'e-mail a été placé dans la corbeille.");
+      setTimeout(() => setSuccessMsg(null), 4000);
+      fetchGmail();
+    } catch (err: any) {
+      console.error(err);
+      alert("Erreur de suppression de l'e-mail : " + (err?.message || "Erreur"));
+    } finally {
+      setGmailLoading(false);
+    }
+  };
+
+  const handleCreateSheet = async () => {
+    if (!newSheetTitle.trim()) return;
+    setSheetsLoading(true);
+    try {
+      const sheetInfo = await createSpreadsheet(newSheetTitle.trim());
+      setActiveSpreadsheet(sheetInfo);
+      sessionStorage.setItem('active_plumbing_spreadsheet', JSON.stringify(sheetInfo));
+      setSuccessMsg(`Feuille Google Sheets "${sheetInfo.title}" créée avec succès !`);
+      setTimeout(() => setSuccessMsg(null), 5000);
+      
+      // Auto-populate headers for Plumbing monitoring
+      await appendRowToSpreadsheet(sheetInfo.spreadsheetId, 'Sheet1!A1', [
+        'Date', 'Client', 'Type de Service', 'Montant Estimé (FCFA)', 'Statut'
+      ]);
+      fetchSheetData(sheetInfo.spreadsheetId);
+    } catch (err: any) {
+      console.error(err);
+      alert("Erreur de création Google Sheets: " + (err?.message || "Erreur"));
+    } finally {
+      setSheetsLoading(false);
+    }
+  };
+
+  const fetchSheetData = async (sheetId: string) => {
+    setSheetsLoading(true);
+    try {
+      const values = await getSpreadsheetValues(sheetId, 'Sheet1!A1:E100');
+      setSpreadsheetRows(values);
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setSheetsLoading(false);
+    }
+  };
+
+  const handleAddSheetRow = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeSpreadsheet || !rowClient.trim()) return;
+
+    setAddingRow(true);
+    try {
+      await appendRowToSpreadsheet(activeSpreadsheet.spreadsheetId, 'Sheet1!A1', [
+        rowDate,
+        rowClient.trim(),
+        rowService,
+        rowAmount,
+        'En attente'
+      ]);
+      setSuccessMsg("Ligne de chantier ajoutée à Google Sheets !");
+      setRowClient('');
+      setRowAmount('25000');
+      setTimeout(() => setSuccessMsg(null), 4000);
+      fetchSheetData(activeSpreadsheet.spreadsheetId);
+    } catch (err: any) {
+      console.error(err);
+      alert("Erreur d'ajout de ligne : " + (err?.message || "Erreur"));
+    } finally {
+      setAddingRow(false);
+    }
+  };
+
+  const fetchTaskListsAndTasks = async () => {
+    setTasksLoading(true);
+    try {
+      const lists = await listTaskLists();
+      setTaskLists(lists);
+      if (lists.length > 0) {
+        const defaultListId = lists[0].id;
+        setSelectedTaskListId(defaultListId);
+        const tasks = await listTasks(defaultListId);
+        setTasksList(tasks);
+      }
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setTasksLoading(false);
+    }
+  };
+
+  const handleSelectTaskList = async (listId: string) => {
+    setSelectedTaskListId(listId);
+    setTasksLoading(true);
+    try {
+      const tasks = await listTasks(listId);
+      setTasksList(tasks);
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setTasksLoading(false);
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTaskTitle.trim() || !selectedTaskListId) return;
+
+    setCreatingTask(true);
+    try {
+      const dueFormatted = newTaskDue ? new Date(newTaskDue).toISOString() : undefined;
+      await createGoogleTask(selectedTaskListId, newTaskTitle.trim(), newTaskNotes.trim() || undefined, dueFormatted);
+      setNewTaskTitle('');
+      setNewTaskNotes('');
+      setNewTaskDue('');
+      setSuccessMsg("Tâche ajoutée à Google Tasks !");
+      setTimeout(() => setSuccessMsg(null), 4000);
+      
+      const tasks = await listTasks(selectedTaskListId);
+      setTasksList(tasks);
+    } catch (err: any) {
+      console.error(err);
+      alert("Erreur d'ajout de tâche : " + (err?.message || "Erreur"));
+    } finally {
+      setCreatingTask(false);
+    }
+  };
+
+  const handleToggleTaskStatus = async (taskId: string, currentStatus: 'completed' | 'needsAction') => {
+    const nextStatus = currentStatus === 'completed' ? 'needsAction' : 'completed';
+    setTasksLoading(true);
+    try {
+      await updateGoogleTaskStatus(selectedTaskListId, taskId, nextStatus);
+      const tasks = await listTasks(selectedTaskListId);
+      setTasksList(tasks);
+    } catch (err: any) {
+      console.error(err);
+      alert("Erreur de mise à jour du statut : " + (err?.message || "Erreur"));
+    } finally {
+      setTasksLoading(false);
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    const confirmed = window.confirm("[SÉCURITÉ] Confirmez-vous la SUPPRESSION définitive de cette tâche ?");
+    if (!confirmed) return;
+
+    setTasksLoading(true);
+    try {
+      await deleteGoogleTask(selectedTaskListId, taskId);
+      setSuccessMsg("Tâche supprimée définitivement.");
+      setTimeout(() => setSuccessMsg(null), 4000);
+      const tasks = await listTasks(selectedTaskListId);
+      setTasksList(tasks);
+    } catch (err: any) {
+      console.error(err);
+      alert("Erreur de suppression de la tâche : " + (err?.message || "Erreur"));
+    } finally {
+      setTasksLoading(false);
+    }
+  };
+
+  const fetchFirestoreDevis = async () => {
+    setFirestoreLoading(true);
+    try {
+      const q = query(collection(db, 'devis'), orderBy('createdAt', 'desc'));
+      const querySnapshot = await getDocs(q);
+      const items: any[] = [];
+      querySnapshot.forEach((docSnap) => {
+        items.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      setFirestoreDevis(items);
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setFirestoreLoading(false);
+    }
+  };
+
+  const handleDeleteFirestoreDevis = async (id: string) => {
+    const confirmed = window.confirm("[SÉCURITÉ DEVIS] Voulez-vous vraiment SUPPRIMER cette demande de devis de la base Firebase Firestore ?");
+    if (!confirmed) return;
+
+    setFirestoreLoading(true);
+    try {
+      await deleteDoc(doc(db, 'devis', id));
+      setSuccessMsg("Demande de devis supprimée avec succès.");
+      setTimeout(() => setSuccessMsg(null), 4000);
+      fetchFirestoreDevis();
+    } catch (err: any) {
+      console.error(err);
+      alert("Erreur de suppression Firestore : " + (err?.message || "Erreur"));
+    } finally {
+      setFirestoreLoading(false);
     }
   };
 
@@ -354,7 +771,36 @@ Garantie : Tuyaux et joints garantis 10 ans.
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="space-y-6">
+          {/* Sub-Tabs Switcher for Workspace Features */}
+          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800/80 gap-1 max-w-md mx-auto">
+            <button
+              onClick={() => setActiveSubTab('drive')}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeSubTab === 'drive'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              }`}
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              <span>Google Drive</span>
+            </button>
+            
+            <button
+              onClick={() => setActiveSubTab('contacts')}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeSubTab === 'contacts'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Google Contacts</span>
+            </button>
+          </div>
+
+          {activeSubTab === 'drive' ? (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* LEFT COLUMN: UPLOADER & BACKUP GENERATOR */}
           <div className="lg:col-span-5 space-y-6">
             {/* Authenticated User Status */}
@@ -677,6 +1123,292 @@ Garantie : Tuyaux et joints garantis 10 ans.
               )}
             </div>
           </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* LEFT COLUMN: CREATE CONTACT */}
+          <div className="lg:col-span-5 space-y-6">
+            {/* Authenticated User Status */}
+            <div className="bg-slate-900 rounded-3xl p-5 border border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="relative shrink-0">
+                  <img 
+                    src={user.photoURL || '/images/logo_major_plomberie.jpg'} 
+                    alt={user.displayName || 'Client'} 
+                    className="w-11 h-11 rounded-full border-2 border-blue-500 shadow object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                  <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-900" />
+                </div>
+                <div className="space-y-0.5">
+                  <h4 className="text-sm font-bold text-white line-clamp-1">{user.displayName || 'Client Major Plomberie'}</h4>
+                  <p className="text-[11px] text-slate-400 line-clamp-1">{user.email}</p>
+                </div>
+              </div>
+              
+              <button 
+                onClick={handleLogout}
+                className="p-2 bg-slate-950 hover:bg-red-500/10 text-slate-400 hover:text-red-400 rounded-xl border border-slate-800 hover:border-red-500/20 transition-colors cursor-pointer"
+                title="Se déconnecter"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Create Contact Form */}
+            <div className="bg-slate-900 rounded-3xl p-6 border border-slate-800 space-y-5">
+              <div className="border-b border-slate-800 pb-3 flex justify-between items-center">
+                <h3 className="font-display font-bold text-base text-white flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-emerald-400" />
+                  <span>Nouveau Client</span>
+                </h3>
+              </div>
+
+              <form onSubmit={handleCreateContact} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-semibold text-slate-400 block">Nom complet du client *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newContactName}
+                    onChange={(e) => setNewContactName(e.target.value)}
+                    placeholder="Ex: Kamdem Blaise"
+                    className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-semibold text-slate-400 block">Téléphone Cameroun</label>
+                  <input
+                    type="tel"
+                    value={newContactPhone}
+                    onChange={(e) => setNewContactPhone(e.target.value)}
+                    placeholder="Ex: +237 651 017 585"
+                    className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-semibold text-slate-400 block">Email</label>
+                  <input
+                    type="email"
+                    value={newContactEmail}
+                    onChange={(e) => setNewContactEmail(e.target.value)}
+                    placeholder="Ex: kamdem@example.com"
+                    className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-semibold text-slate-400 block">Organisation / Entreprise</label>
+                  <input
+                    type="text"
+                    value={newContactOrg}
+                    onChange={(e) => setNewContactOrg(e.target.value)}
+                    placeholder="Ex: Major Plomberie (Foumbot)"
+                    className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={creatingContact || !newContactName.trim()}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-850 disabled:text-slate-500 text-white font-bold text-xs py-2.5 rounded-xl transition-all shadow flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  {creatingContact ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <UserPlus className="w-3.5 h-3.5" />
+                  )}
+                  <span>Enregistrer dans mon compte</span>
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* RIGHT COLUMN: CONTACTS LIST */}
+          <div className="lg:col-span-7 space-y-6">
+            <div className="bg-slate-900 rounded-3xl p-6 border border-slate-800 space-y-6">
+              {/* Explorer Head */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div>
+                  <h3 className="font-display font-bold text-lg text-white flex items-center gap-2">
+                    <Users className="w-5 h-5 text-amber-400" />
+                    <span>Répertoire Clients</span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Contacts synchronisés depuis votre compte Google
+                  </p>
+                </div>
+                
+                <button
+                  onClick={fetchContactsList}
+                  className="self-start sm:self-auto p-2 bg-slate-950 hover:bg-slate-850 text-slate-300 rounded-xl border border-slate-800 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Actualiser</span>
+                </button>
+              </div>
+
+              {/* Status alerts */}
+              {successMsg && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-3.5 bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs rounded-xl flex gap-2 items-center"
+                >
+                  <CheckCircle className="w-4 h-4 shrink-0" />
+                  <span>{successMsg}</span>
+                </motion.div>
+              )}
+
+              {/* Contacts Search Bar */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={contactsSearch}
+                  onChange={(e) => setContactsSearch(e.target.value)}
+                  placeholder="Rechercher par nom, téléphone, entreprise..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Contacts List rendering */}
+              {contactsLoading ? (
+                <div className="min-h-[250px] flex flex-col items-center justify-center text-slate-400 space-y-2">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                  <span className="text-xs">Chargement de vos contacts Google...</span>
+                </div>
+              ) : contacts.length === 0 ? (
+                <div className="min-h-[250px] border border-dashed border-slate-800 rounded-2xl flex flex-col items-center justify-center text-center p-8 space-y-3">
+                  <Users className="w-10 h-10 text-slate-600" />
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-slate-300">Aucun contact trouvé</p>
+                    <p className="text-[11px] text-slate-500 max-w-sm">
+                      Vous n'avez pas encore de clients enregistrés dans vos contacts ou la liste est vide. Utilisez le formulaire pour en ajouter un.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                  {(() => {
+                    const filtered = contacts.filter(c => {
+                      const query = contactsSearch.toLowerCase();
+                      return (
+                        c.name.toLowerCase().includes(query) ||
+                        c.phone.toLowerCase().includes(query) ||
+                        c.email.toLowerCase().includes(query) ||
+                        (c.organization || '').toLowerCase().includes(query)
+                      );
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <p className="text-xs text-slate-500 text-center py-6">Aucun contact ne correspond à votre recherche.</p>
+                      );
+                    }
+
+                    return filtered.map((contact) => {
+                      const cleanPhone = contact.phone.replace(/[^\d+]/g, '');
+                      const whatsappUrl = cleanPhone ? `https://wa.me/${cleanPhone.startsWith('+') ? cleanPhone.slice(1) : cleanPhone}` : null;
+
+                      return (
+                        <div 
+                          key={contact.resourceName} 
+                          className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 hover:border-slate-700 transition-all flex items-center justify-between gap-4 group"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            {/* Avatar Bubble */}
+                            <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0 font-bold text-sm border border-blue-500/20">
+                              {contact.name.charAt(0).toUpperCase()}
+                            </div>
+
+                            <div className="min-w-0 space-y-0.5">
+                              <h4 className="text-xs font-bold text-white truncate max-w-[180px] sm:max-w-xs" title={contact.name}>
+                                {contact.name}
+                              </h4>
+                              <div className="flex flex-col gap-0.5">
+                                {contact.phone && (
+                                  <div className="flex items-center gap-1 text-[10px] text-slate-300">
+                                    <Phone className="w-2.5 h-2.5 text-slate-500" />
+                                    <span>{contact.phone}</span>
+                                  </div>
+                                )}
+                                {contact.email && (
+                                  <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                                    <Mail className="w-2.5 h-2.5 text-slate-500" />
+                                    <span className="truncate">{contact.email}</span>
+                                  </div>
+                                )}
+                                {contact.organization && (
+                                  <div className="flex items-center gap-1 text-[9px] text-emerald-400/80 font-medium">
+                                    <Building className="w-2.5 h-2.5 text-emerald-500/50" />
+                                    <span>{contact.organization}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Contact Actions */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Call */}
+                            {contact.phone && (
+                              <a
+                                href={`tel:${contact.phone}`}
+                                className="p-1.5 hover:bg-blue-500/15 text-slate-400 hover:text-blue-400 rounded-lg transition-colors"
+                                title="Appeler"
+                              >
+                                <Phone className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+
+                            {/* WhatsApp Direct */}
+                            {whatsappUrl && (
+                              <a
+                                href={whatsappUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 hover:bg-emerald-500/15 text-slate-400 hover:text-emerald-400 rounded-lg transition-colors"
+                                title="Message WhatsApp"
+                              >
+                                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                                  <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.455L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.825 1.451 5.436 0 9.86-4.37 9.864-9.799.002-2.63-1.023-5.101-2.885-6.963C16.488 2.015 14.032 1 11.999 1c-5.441 0-9.87 4.372-9.874 9.802-.001 1.73.47 3.424 1.365 4.901l-.982 3.582 3.676-.952zm11.378-6.103c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.149-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.174.2-.298.3-.497.099-.198.05-.371-.025-.521-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414-.074-.124-.272-.198-.57-.347z"/>
+                                </svg>
+                              </a>
+                            )}
+
+                            {/* Email */}
+                            {contact.email && (
+                              <a
+                                href={`mailto:${contact.email}`}
+                                className="p-1.5 hover:bg-blue-500/15 text-slate-400 hover:text-blue-400 rounded-lg transition-colors"
+                                title="Envoyer un email"
+                              >
+                                <Mail className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+
+                            {/* Delete */}
+                            <button
+                              onClick={() => handleDeleteContact(contact.resourceName, contact.name)}
+                              className="p-1.5 hover:bg-red-500/15 text-slate-400 hover:text-red-400 rounded-lg transition-colors cursor-pointer"
+                              title="Supprimer définitivement"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
         </div>
       )}
 

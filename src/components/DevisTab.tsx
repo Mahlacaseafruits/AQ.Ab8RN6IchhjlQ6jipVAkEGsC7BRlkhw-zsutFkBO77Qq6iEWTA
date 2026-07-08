@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { QuoteRequest } from '../types';
 import { BUSINESS_INFO, SERVICES_LIST } from '../data/appData';
 import { Calculator, Send, MessageCircle, CheckCircle, Clock, AlertTriangle, Sparkles, WifiOff, Camera, Trash2, RefreshCw, X, Cloud, Loader2 } from 'lucide-react';
-import { initAuth, googleSignIn, uploadTextFile, uploadImageFile } from '../lib/googleDriveService';
+import { initAuth, googleSignIn, uploadTextFile, uploadImageFile, db } from '../lib/googleDriveService';
+import { doc, setDoc } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 
 interface DevisTabProps {
@@ -276,7 +277,7 @@ Estimation automatique du budget : ${calculateEstimatedRange()}
     setSubmitted(true);
   };
 
-  const handleStandardSubmit = (e: React.FormEvent) => {
+  const handleStandardSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isOffline) {
       alert("Votre connexion internet est inactive. Veuillez vous reconnecter pour pouvoir enregistrer votre devis en ligne.");
@@ -286,6 +287,24 @@ Estimation automatique du budget : ${calculateEstimatedRange()}
       alert("Veuillez indiquer votre nom et numéro de téléphone.");
       return;
     }
+
+    try {
+      const devisId = 'devis_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+      await setDoc(doc(db, 'devis', devisId), {
+        clientName: formData.clientName,
+        phone: formData.phone,
+        email: formData.email || '',
+        city: formData.city,
+        serviceType: formData.serviceType,
+        urgency: formData.urgency,
+        description: formData.description || '',
+        createdAt: new Date().toISOString(),
+        budgetEstimation: calculateEstimatedRange()
+      });
+    } catch (err) {
+      console.error("Erreur d'enregistrement dans Firestore:", err);
+    }
+
     setSubmitted(true);
   };
 

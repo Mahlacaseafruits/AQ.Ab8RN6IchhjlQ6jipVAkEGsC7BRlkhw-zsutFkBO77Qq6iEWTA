@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "devis": {
+      "title": "Devis",
+      "description": "Demandes de devis ou rapports de plomberie",
+      "type": "object",
+      "properties": {
+        "clientName": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "city": { "type": "string" },
+        "serviceType": { "type": "string" },
+        "urgency": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "budgetEstimation": { "type": "string" }
+      },
+      "required": ["clientName", "phone", "city", "serviceType", "urgency"]
+    },
+    "tasks": {
+      "title": "Task",
+      "description": "Tâches de chantiers pour les plombiers",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "notes": { "type": "string" },
+        "due": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["title", "status", "userId"]
+    }
+  },
+  "firestore": {
+    "/devis/{devisId}": {
+      "schema": "devis",
+      "description": "Collection des demandes de devis"
+    },
+    "/tasks/{taskId}": {
+      "schema": "tasks",
+      "description": "Collection des tâches des chantiers de plomberie"
+    }
+  }
+}
