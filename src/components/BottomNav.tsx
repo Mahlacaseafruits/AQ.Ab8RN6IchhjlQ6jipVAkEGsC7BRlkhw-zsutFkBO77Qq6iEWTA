@@ -9,7 +9,8 @@ import {
   HelpCircle, 
   Award, 
   PhoneCall,
-  Lightbulb
+  Lightbulb,
+  Cloud
 } from 'lucide-react';
 
 interface BottomNavProps {
@@ -28,6 +29,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
     { id: 'faq', icon: HelpCircle, label: 'FAQ' },
     { id: 'apropos', icon: Award, label: 'À propos' },
     { id: 'contact', icon: PhoneCall, label: 'Contact' },
+    { id: 'drive', icon: Cloud, label: 'Drive' },
   ];
 
   return (

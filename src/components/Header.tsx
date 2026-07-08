@@ -15,7 +15,8 @@ import {
   PhoneCall,
   Lightbulb,
   Sun,
-  Moon
+  Moon,
+  Cloud
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -45,6 +46,7 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'faq', label: 'Questions FAQ', icon: HelpCircle },
     { id: 'apropos', label: 'À propos', icon: Award },
     { id: 'contact', label: 'Contact direct', icon: PhoneCall },
+    { id: 'drive', label: 'Google Drive', icon: Cloud },
   ];
 
   return (

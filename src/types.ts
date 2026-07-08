@@ -1,4 +1,4 @@
-export type TabType = 'accueil' | 'services' | 'galerie' | 'devis' | 'carte' | 'faq' | 'conseils' | 'apropos' | 'contact';
+export type TabType = 'accueil' | 'services' | 'galerie' | 'devis' | 'carte' | 'faq' | 'conseils' | 'apropos' | 'contact' | 'drive';
 
 export interface AdviceArticle {
   id: string;

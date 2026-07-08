@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { QuoteRequest } from '../types';
 import { BUSINESS_INFO, SERVICES_LIST } from '../data/appData';
-import { Calculator, Send, MessageCircle, CheckCircle, Clock, AlertTriangle, Sparkles, WifiOff, Camera, Trash2, RefreshCw, X } from 'lucide-react';
+import { Calculator, Send, MessageCircle, CheckCircle, Clock, AlertTriangle, Sparkles, WifiOff, Camera, Trash2, RefreshCw, X, Cloud, Loader2 } from 'lucide-react';
+import { initAuth, googleSignIn, uploadTextFile, uploadImageFile } from '../lib/googleDriveService';
+import { User } from 'firebase/auth';
 
 interface DevisTabProps {
   initialService?: string;
@@ -19,6 +21,87 @@ export const DevisTab: React.FC<DevisTabProps> = ({ initialService }) => {
   });
 
   const [submitted, setSubmitted] = useState(false);
+
+  // Google Drive integration states
+  const [driveUser, setDriveUser] = useState<User | null>(null);
+  const [driveToken, setDriveToken] = useState<string | null>(null);
+  const [driveLoading, setDriveLoading] = useState<boolean>(false);
+  const [driveSaved, setDriveSaved] = useState<boolean>(false);
+  const [drivePhotoSaved, setDrivePhotoSaved] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsubscribe = initAuth(
+      (user, token) => {
+        setDriveUser(user);
+        setDriveToken(token);
+      },
+      () => {
+        setDriveUser(null);
+        setDriveToken(null);
+      }
+    );
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
+
+  const saveQuoteToDrive = async () => {
+    if (!driveUser) {
+      setDriveLoading(true);
+      try {
+        const result = await googleSignIn();
+        if (result) {
+          setDriveUser(result.user);
+          setDriveToken(result.accessToken);
+        }
+      } catch (err) {
+        console.error(err);
+        alert("La connexion à Google Drive a échoué.");
+      } finally {
+        setDriveLoading(false);
+      }
+      return;
+    }
+
+    setDriveLoading(true);
+    try {
+      const fileName = `Devis_MajorPlomberie_${formData.clientName.replace(/\s+/g, '_')}_${Date.now()}.txt`;
+      const content = `================================================
+DEVIS MAJOR PLOMBERIE & FILS - SAUVEGARDE CLOUD
+================================================
+Date de création : ${new Date().toLocaleDateString('fr-FR')}
+Client : ${formData.clientName}
+Téléphone : ${formData.phone}
+Ville : ${formData.city}
+Prestation demandée : ${formData.serviceType}
+Niveau d'urgence : ${formData.urgency.toUpperCase()}
+Description détaillée : ${formData.description || 'Non fournie'}
+Estimation automatique du budget : ${calculateEstimatedRange()}
+================================================`;
+      await uploadTextFile(fileName, content, `Sauvegarde de devis en ligne pour ${formData.clientName}`);
+      setDriveSaved(true);
+    } catch (err) {
+      console.error(err);
+      alert("Erreur lors de la sauvegarde sur Google Drive.");
+    } finally {
+      setDriveLoading(false);
+    }
+  };
+
+  const savePhotoToDrive = async () => {
+    if (!photo) return;
+    setDriveLoading(true);
+    try {
+      const photoName = `Chantier_Illustration_${formData.clientName.replace(/\s+/g, '_')}_${Date.now()}.jpg`;
+      await uploadImageFile(photoName, photo);
+      setDrivePhotoSaved(true);
+    } catch (err) {
+      console.error(err);
+      alert("Erreur lors de la sauvegarde de l'image.");
+    } finally {
+      setDriveLoading(false);
+    }
+  };
   const [isOffline, setIsOffline] = useState<boolean>(() => {
     return typeof navigator !== 'undefined' ? !navigator.onLine : false;
   });
@@ -239,6 +322,68 @@ export const DevisTab: React.FC<DevisTabProps> = ({ initialService }) => {
               <img src={photo} alt="Illustration de la panne" className="w-full max-h-48 object-cover rounded-xl" />
             </div>
           )}
+
+          {/* Google Drive Backup Block */}
+          <div className="max-w-md mx-auto bg-slate-950 border border-slate-800 p-5 rounded-2xl text-left space-y-3">
+            <div className="flex items-center gap-2 text-blue-400">
+              <Cloud className="w-5 h-5" />
+              <span className="text-xs font-bold uppercase tracking-wider">Sauvegarde Google Drive (Sécurisée)</span>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-relaxed">
+              Conservez une copie numérique de cette simulation de devis et/ou de la photo prise sur votre espace Google Drive personnel.
+            </p>
+
+            <div className="flex flex-col gap-2 pt-1">
+              {!driveUser ? (
+                <button
+                  type="button"
+                  onClick={saveQuoteToDrive}
+                  disabled={driveLoading}
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  {driveLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5" />}
+                  <span>Se connecter & Sauvegarder sur Drive</span>
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-[10px] text-slate-400">
+                    Connecté en tant que <span className="text-white font-bold">{driveUser.displayName || driveUser.email}</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={saveQuoteToDrive}
+                      disabled={driveLoading || driveSaved}
+                      className={`py-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        driveSaved 
+                          ? 'bg-slate-800 text-emerald-400 border border-emerald-500/20' 
+                          : 'bg-slate-900 hover:bg-slate-800 text-white border border-slate-700'
+                      }`}
+                    >
+                      {driveSaved ? '✓ Devis Sauvegardé' : '📁 Sauvegarder Devis'}
+                    </button>
+
+                    {photo && (
+                      <button
+                        type="button"
+                        onClick={savePhotoToDrive}
+                        disabled={driveLoading || drivePhotoSaved}
+                        className={`py-2 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          drivePhotoSaved 
+                            ? 'bg-slate-800 text-emerald-400 border border-emerald-500/20' 
+                            : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                        }`}
+                      >
+                        {drivePhotoSaved ? '✓ Photo Sauvegardée' : '📸 Sauvegarder Photo'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 max-w-md mx-auto text-xs text-slate-400">
             En cas d'extrême urgence, n'attendez pas et appelez directement au{' '}
             <a href={`tel:${BUSINESS_INFO.phoneFull}`} className="text-red-400 font-bold underline">
@@ -249,8 +394,10 @@ export const DevisTab: React.FC<DevisTabProps> = ({ initialService }) => {
             onClick={() => {
               setPhoto(null);
               setSubmitted(false);
+              setDriveSaved(false);
+              setDrivePhotoSaved(false);
             }}
-            className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-6 py-3 rounded-xl transition-colors"
+            className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-6 py-3 rounded-xl transition-colors cursor-pointer"
           >
             Faire une autre demande
           </button>

@@ -18,6 +18,7 @@ import { AProposTab } from './components/AProposTab';
 import { ContactTab } from './components/ContactTab';
 import { FaqTab } from './components/FaqTab';
 import { ConseilsTab } from './components/ConseilsTab';
+import { DriveTab } from './components/DriveTab';
 import { Smartphone, ShieldCheck, Wrench, MapPin, Phone, Loader2, Wifi, WifiOff, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -76,6 +77,7 @@ export default function App() {
     faq: { label: 'Foire Aux Questions (FAQ)', icon: '❓', subtitle: 'Récupération des réponses aux questions...' },
     apropos: { label: 'À Propos de Major Plomberie', icon: '🏆', subtitle: 'Affichage de nos certifications et garanties...' },
     contact: { label: 'Contact Direct 24h/24', icon: '📞', subtitle: 'Connexion aux lignes urgence et WhatsApp...' },
+    drive: { label: 'Espace Cloud Google Drive', icon: '📁', subtitle: 'Connexion sécurisée et accès à vos sauvegardes...' },
   };
 
   // Scroll to top and trigger transition on tab switch
@@ -119,6 +121,8 @@ export default function App() {
         return <AProposTab theme={theme} setTheme={setTheme} />;
       case 'contact':
         return <ContactTab />;
+      case 'drive':
+        return <DriveTab />;
       default:
         return <AccueilTab setActiveTab={handleSetTab} />;
     }
@@ -256,6 +260,7 @@ export default function App() {
               <button onClick={() => handleSetTab('devis')} className="text-left hover:text-white py-1">📝 Devis</button>
               <button onClick={() => handleSetTab('galerie')} className="text-left hover:text-white py-1">🖼️ Galerie</button>
               <button onClick={() => handleSetTab('faq')} className="text-left hover:text-white py-1">❓ FAQ</button>
+              <button onClick={() => handleSetTab('drive')} className="text-left hover:text-white py-1 text-emerald-400 font-semibold">📁 Google Drive</button>
             </div>
           </div>
 
